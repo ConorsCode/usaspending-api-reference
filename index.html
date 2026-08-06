@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>USAspending.gov API Reference — spending_by_award, Fields Validation, Pagination Cap, hasNext Bug</title>
+<meta name="description" content="A verified reference for USAspending.gov's public spending_by_award API: the undocumented fields silent-null trap, the page_metadata.hasNext bug that truncates large pulls, the 50,000-row pagination cap, and money-field semantics. Re-verified live.">
+<link rel="canonical" href="https://conorscode.github.io/usaspending-api-reference/">
+<meta property="og:type" content="article">
+<meta property="og:title" content="USAspending.gov API Reference — Verified Live, Including Two Bugs That Will Silently Wreck Your Data">
+<meta property="og:description" content="Exact request bodies, real responses, the fields-not-validated trap, the hasNext-lies-past-page-100 bug, the 50,000-row cap and its cursor workaround, and money semantics that trip people up constantly.">
+<meta property="og:url" content="https://conorscode.github.io/usaspending-api-reference/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="USAspending.gov API Reference — Verified Live, Including Two Bugs That Will Silently Wreck Your Data">
+<meta name="twitter:description" content="Exact request bodies, real responses, the fields-not-validated trap, the hasNext-lies-past-page-100 bug, the 50,000-row cap and its cursor workaround, and money semantics.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "USAspending.gov API Reference — spending_by_award, Fields Validation, Pagination Cap, hasNext Bug",
+  "description": "A verified reference for USAspending.gov's public spending_by_award search API, documenting the real request/filter shape, two undocumented bugs (silent-null unknown fields, unreliable hasNext past ~page 100), the 50,000-row pagination cap and cursor workaround, and money-field semantics.",
+  "url": "https://conorscode.github.io/usaspending-api-reference/",
+  "datePublished": "2026-08-05",
+  "dateModified": "2026-08-05",
+  "author": {
+    "@type": "Person",
+    "name": "Conor",
+    "url": "https://github.com/ConorsCode"
+  },
+  "about": [
+    "USAspending.gov API", "spending_by_award", "federal contract data", "federal grant data", "govcon"
+  ]
+}
+</script>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-alt: #f5f6f8;
+    --fg: #1a1d21;
+    --fg-muted: #565d66;
+    --border: #dde1e6;
+    --accent: #1a5fb4;
+    --accent-bg: #eaf1fb;
+    --code-bg: #f0f2f5;
+    --code-fg: #1a1d21;
+    --warn-bg: #fff6e5;
+    --warn-border: #e8b93f;
+    --danger-bg: #fdeceb;
+    --danger-border: #d5453a;
+    --table-stripe: #f8f9fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --bg-alt: #1c1f24;
+      --fg: #e7e9ec;
+      --fg-muted: #9aa2ab;
+      --border: #30343a;
+      --accent: #7bb0f0;
+      --accent-bg: #1c2a3a;
+      --code-bg: #1e2126;
+      --code-fg: #d7dbe0;
+      --warn-bg: #2a2410;
+      --warn-border: #a5822a;
+      --danger-bg: #2c1a18;
+      --danger-border: #b8483d;
+      --table-stripe: #191c21;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    font-size: 17px;
+  }
+  .wrap {
+    max-width: 50rem;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 6rem;
+  }
+  header.page-header {
+    margin-bottom: 2.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.6rem;
+  }
+  .subtitle {
+    color: var(--fg-muted);
+    font-size: 1.05rem;
+    margin: 0 0 0.8rem;
+  }
+  .meta-line {
+    color: var(--fg-muted);
+    font-size: 0.9rem;
+  }
+  h2 {
+    font-size: 1.5rem;
+    margin: 3rem 0 1rem;
+    padding-top: 0.5rem;
+    scroll-margin-top: 1rem;
+  }
+  h3 {
+    font-size: 1.2rem;
+    margin: 2rem 0 0.75rem;
+    scroll-margin-top: 1rem;
+  }
+  h4 {
+    font-size: 1rem;
+    margin: 1.5rem 0 0.5rem;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  p { margin: 0.85rem 0; }
+  a { color: var(--accent); }
+  a:hover { text-decoration: none; }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: 0.35rem 0; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 0.12rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.88em;
+    word-break: break-word;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    border: 1px solid var(--border);
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: 1em;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1.25rem 0;
+    font-size: 0.9rem;
+  }
+  .table-scroll {
+    overflow-x: auto;
+    margin: 1.25rem 0;
+  }
+  .table-scroll table { margin: 0; min-width: 640px; }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 0.5rem 0.7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--bg-alt);
+    font-weight: 600;
+  }
+  tr:nth-child(even) td { background: var(--table-stripe); }
+  .callout {
+    background: var(--warn-bg);
+    border-left: 4px solid var(--warn-border);
+    padding: 0.9rem 1.1rem;
+    border-radius: 6px;
+    margin: 1.25rem 0;
+  }
+  .callout strong { display: block; margin-bottom: 0.3rem; }
+  .callout.danger {
+    background: var(--danger-bg);
+    border-left-color: var(--danger-border);
+  }
+  .verified {
+    display: inline-block;
+    background: var(--accent-bg);
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.02em;
+  }
+  nav.toc {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0 2rem;
+  }
+  nav.toc h2 {
+    margin: 0 0 0.6rem;
+    font-size: 1.05rem;
+    border: none;
+    padding: 0;
+  }
+  nav.toc ol {
+    columns: 1;
+    padding-left: 1.2rem;
+    margin: 0;
+  }
+  nav.toc li { margin: 0.25rem 0; font-size: 0.95rem; }
+  .platform-section {
+    border-top: 1px solid var(--border);
+    padding-top: 1.5rem;
+    margin-top: 2.5rem;
+  }
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--fg-muted);
+    font-size: 0.88rem;
+  }
+  .backtotop { font-size: 0.85rem; }
+  hr.sep { border: none; border-top: 1px solid var(--border); margin: 2.5rem 0; }
+  .small { font-size: 0.85rem; color: var(--fg-muted); }
+</style>
+</head>
+<body>
+<div class="wrap" id="top">
+
+<header class="page-header">
+  <h1>USAspending.gov API Reference</h1>
+  <p class="subtitle">The public <code>spending_by_award</code> search API — documented from real requests we sent and real responses we watched come back, including two undocumented bugs that will silently corrupt a naive integration.</p>
+  <p class="meta-line">Verified live on 2026-08-05. Every request body below was actually sent to <code>api.usaspending.gov</code>; every response and error message shown is real, not a guess.</p>
+</header>
+
+<nav class="toc" aria-label="Table of contents">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#why">Why this exists</a></li>
+    <li><a href="#endpoint">The endpoint &amp; request shape</a></li>
+    <li><a href="#fields-bug">Critical: <code>fields</code> is not validated — unknown names silently return null</code></a></li>
+    <li><a href="#hasnext-bug">Critical: <code>page_metadata.hasNext</code> lies past ~page 100</a></li>
+    <li><a href="#pagination">Pagination: the 50,000-row cap and the cursor workaround</a></li>
+    <li><a href="#limit"><code>limit</code> caps at 100</a></li>
+    <li><a href="#money">Money semantics: obligated vs. outlays vs. ceiling</a></li>
+    <li><a href="#award-types">Award type codes reference</a></li>
+    <li><a href="#auth">Auth, rate limits, being polite</a></li>
+    <li><a href="#worked-example">Worked example: a full paginated pull</a></li>
+    <li><a href="#related">Free dataset &amp; paid actor</a></li>
+    <li><a href="#legal">Legal &amp; ethical notes</a></li>
+  </ol>
+</nav>
+
+<section id="why">
+  <h2>Why this exists</h2>
+  <p>USAspending.gov runs a genuinely public, unauthenticated JSON API covering every prime federal contract and grant/assistance award since fiscal year 2008. It's the same API that powers usaspending.gov's own search UI. The official docs describe the request shape reasonably well — but they don't mention two behaviors that will quietly wreck a real pull: an unvalidated <code>fields</code> array that returns <code>null</code> instead of erroring on a typo, and a <code>hasNext</code> flag that starts lying partway through a large result set. We hit both while building a production scraper against this API and are documenting them here because nothing else does.</p>
+  <p>Everything below — request bodies, response shapes, error text — was captured from real calls made on the date at the top of this page.</p>
+</section>
+
+<!-- ============================= ENDPOINT ============================= -->
+<section id="endpoint" class="platform-section">
+  <h2>The endpoint &amp; request shape</h2>
+  <span class="verified">Verified live — 200 OK</span>
+
+  <h3>Endpoint</h3>
+  <p><code>POST https://api.usaspending.gov/api/v2/search/spending_by_award/</code></p>
+  <p>No authentication, no API key. Content-Type <code>application/json</code>.</p>
+
+  <h3>Request body shape</h3>
+  <pre><code>{
+  "filters": {
+    "time_period": [
+      { "start_date": "2026-07-01", "end_date": "2026-08-01" }
+    ],
+    "award_type_codes": ["A", "B", "C", "D"],
+    "agencies": [
+      { "type": "awarding", "tier": "toptier", "name": "Department of Defense" }
+    ],
+    "recipient_search_text": ["Lockheed Martin"],
+    "naics_codes": ["541511"],
+    "psc_codes": ["D301"],
+    "place_of_performance_locations": [
+      { "country": "USA", "state": "VA" }
+    ]
+  },
+  "fields": ["Award ID", "Recipient Name", "Award Amount", "Total Outlays"],
+  "sort": "Award Amount",
+  "order": "desc",
+  "page": 1,
+  "limit": 100
+}</code></pre>
+
+  <h4>The <code>filters</code> object</h4>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>Key</th><th>Shape</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>time_period</code></td><td>array of <code>{start_date, end_date}</code></td><td>Required in practice. Dates are <code>YYYY-MM-DD</code>. The API's own response includes a message noting search date ranges are limited to an earliest start of 2007-10-01 (older data requires the bulk download endpoints, not this search endpoint).</td></tr>
+      <tr><td><code>award_type_codes</code></td><td>array of strings</td><td>Required. Selects contracts vs. grants — see the <a href="#award-types">award type codes table</a>. Mixing contract and grant codes in one call is allowed by the API but not recommended: the two categories have different valid <code>fields</code> and <code>sort</code> values (see below), so you'll get nulls for whichever category's fields don't apply.</td></tr>
+      <tr><td><code>agencies</code></td><td>array of <code>{type, tier, name}</code></td><td><code>type</code> is <code>"awarding"</code> or <code>"funding"</code>; <code>tier</code> is <code>"toptier"</code> or <code>"subtier"</code>; <code>name</code> must match USAspending's exact agency name string (e.g. <code>"Department of Defense"</code>, not <code>"DoD"</code>).</td></tr>
+      <tr><td><code>recipient_search_text</code></td><td>array of strings</td><td>Free-text match against recipient/vendor name. Case-insensitive substring-style matching in practice.</td></tr>
+      <tr><td><code>naics_codes</code></td><td>array of strings</td><td>6-digit NAICS industry codes. Contracts only — always null on grant/assistance records regardless of whether you filter by it.</td></tr>
+      <tr><td><code>psc_codes</code></td><td>array of strings</td><td>Product/Service Codes. Contracts only.</td></tr>
+      <tr><td><code>place_of_performance_locations</code></td><td>array of <code>{country, state, ...}</code></td><td><code>country</code> is a 3-letter code (<code>"USA"</code>); <code>state</code> is the 2-letter postal code.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>The <code>fields</code> array</h4>
+  <p>A list of field names (not raw JSON keys — they're human-readable strings like <code>"Award ID"</code> and <code>"Recipient Name"</code>, mixed with a smaller number of snake_case ones like <code>naics_code</code>) that determines what comes back in each result object. See the critical finding below before you build this list from guesswork.</p>
+</section>
+
+<!-- ============================= FIELDS BUG ============================= -->
+<section id="fields-bug" class="platform-section">
+  <h2>Critical finding: <code>fields</code> is not server-validated</h2>
+  <span class="verified">Verified live — confirmed with a made-up field name</span>
+
+  <div class="callout danger">
+    <strong>Unknown field names do not error. They silently return <code>null</code>.</strong>
+    We sent a request with <code>"fields": ["Award ID", "Totally Fake Field XYZ"]</code> against real contract data. It returned <code>200 OK</code> with real rows — and <code>"Totally Fake Field XYZ": null</code> on every single one, indistinguishable from a real, valid field that happens to not apply to that award type. If you typo a field name, or guess one that doesn't exist, you get a fully-formed 200 response full of nulls and no error anywhere telling you why.
+  </div>
+
+  <h3>The exact call that proved it</h3>
+  <pre><code>curl -X POST "https://api.usaspending.gov/api/v2/search/spending_by_award/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filters": {
+      "time_period": [{"start_date":"2026-07-01","end_date":"2026-08-01"}],
+      "award_type_codes": ["A","B","C","D"]
+    },
+    "fields": ["Award ID", "Totally Fake Field XYZ"],
+    "sort": "Award ID",
+    "order": "desc",
+    "page": 1,
+    "limit": 2
+  }'</code></pre>
+
+  <h4>Real response (trimmed)</h4>
+  <pre><code>{
+  "results": [
+    {
+      "internal_id": 360893879,
+      "Award ID": "W912P526FA088",
+      "Totally Fake Field XYZ": null,
+      "generated_internal_id": "CONT_AWD_W912P526FA088_9700_W912EK22D0006_9700"
+    }
+  ],
+  "page_metadata": { "page": 1, "hasNext": true, ... }
+}</code></pre>
+
+  <h3>How to discover the genuinely valid field set</h3>
+  <p>The <code>fields</code> array isn't validated, but <strong><code>sort</code> is</strong> — and its error message is, unintentionally, the authoritative list of every field name the current award-type category actually supports. Send a request with a <code>sort</code> value you know is wrong, and the API's <code>400</code>/<code>422</code> response enumerates the real set.</p>
+
+  <h4>Call that surfaces the contracts field list</h4>
+  <pre><code>curl -X POST "https://api.usaspending.gov/api/v2/search/spending_by_award/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filters": {
+      "time_period": [{"start_date":"2026-07-01","end_date":"2026-08-01"}],
+      "award_type_codes": ["A","B","C","D"]
+    },
+    "fields": ["Award ID"],
+    "sort": "Totally Fake Sort Field",
+    "order": "desc",
+    "page": 1,
+    "limit": 2
+  }'</code></pre>
+
+  <h4>Real response — the full valid field list for <strong>contracts</strong> (award_type_codes A/B/C/D)</h4>
+  <pre><code>{
+  "detail": "Sort value 'Totally Fake Sort Field' not found in Contract Award mappings: ['Award ID', 'Recipient Name', 'Recipient DUNS Number', 'recipient_id', 'Awarding Agency', 'Awarding Agency Code', 'Awarding Sub Agency', 'Awarding Sub Agency Code', 'Funding Agency', 'Funding Agency Code', 'Funding Sub Agency', 'Funding Sub Agency Code', 'Place of Performance City Code', 'Place of Performance State Code', 'Place of Performance Country Code', 'Place of Performance Zip5', 'Description', 'Last Modified Date', 'Base Obligation Date', 'prime_award_recipient_id', 'generated_internal_id', 'def_codes', 'COVID-19 Obligations', 'COVID-19 Outlays', 'Infrastructure Obligations', 'Infrastructure Outlays', 'Recipient UEI', 'naics_code', 'naics_description', 'psc_code', 'psc_description', 'cfda_number', 'cfda_program_title', 'sub_cfda_program_titles', 'recipient_location_city_name', 'recipient_location_state_code', 'recipient_location_country_name', 'recipient_location_address_line1', 'recipient_location_address_line2', 'recipient_location_address_line3', 'sub_recipient_location_city_name', 'sub_recipient_location_state_code', 'sub_recipient_location_country_name', 'sub_recipient_location_address_line1', 'pop_city_name', 'pop_state_code', 'pop_country_name', 'sub_pop_city_name', 'sub_pop_state_code', 'sub_pop_country_name', 'Start Date', 'End Date', 'Award Amount', 'Total Outlays', 'Contract Award Type']"
+}</code></pre>
+
+  <h4>The same call against grants (award_type_codes 02/03/04/05) returns a <em>different</em> list</h4>
+  <p>Swap <code>award_type_codes</code> to <code>["02","03","04","05"]</code> in the same malformed-sort request and the enumerated set changes — it's headed <code>"...not found in Non-Loan Assistance Award mappings:"</code>, includes everything contracts has (minus contract-only fields like <code>Contract Award Type</code>), and adds grant-specific fields not present on the contracts list: <code>'Award Type'</code>, <code>'SAI Number'</code>, <code>'CFDA Number'</code>, <code>'Assistance Listings'</code>.</p>
+
+  <div class="callout">
+    <strong>Practical technique</strong>
+    Deliberately break <code>sort</code> once per award-type category you're targeting (contracts vs. grants), read the field list out of the error message, and build your real <code>fields</code> array from that — not from guessing based on the results UI or from older blog posts. Do this once per category and cache the list; it's the same for every subsequent real query against that category.
+  </div>
+</section>
+
+<!-- ============================= HASNEXT BUG ============================= -->
+<section id="hasnext-bug" class="platform-section">
+  <h2>Critical finding: <code>page_metadata.hasNext</code> is unreliable past ~page 100</h2>
+  <span class="verified">Verified against our own production pull — 28,092-row dataset</span>
+
+  <div class="callout danger">
+    <strong>Trusting <code>hasNext</code> silently truncates large result sets.</strong>
+    Building <a href="https://github.com/ConorsCode/open-fedspend-data">open-fedspend-data</a>, we watched <code>page_metadata.hasNext</code> report <code>false</code> starting around page 100 of a sorted contract-award query — while continuing to page manually past that point returned full 100-row pages all the way through roughly page 280. Had we trusted the flag as documented, the pull would have stopped at 10,000 rows instead of its true 28,092. The flag isn't a reliable "there is/isn't more data" signal once you're deep into a large, sorted result set.
+  </div>
+
+  <h3>The correct stopping condition</h3>
+  <p>Stop paging when a page comes back <strong>short of the requested <code>limit</code></strong> (or empty) — not when <code>hasNext</code> says <code>false</code>. A full page (exactly <code>limit</code> rows) means there may be more; a short or empty page is the only reliable end-of-results signal we found.</p>
+
+  <pre><code>// Do this:
+hasNext = pageResults.length === PAGE_LIMIT;
+
+// Not this:
+hasNext = response.page_metadata.hasNext; // lies past ~page 100</code></pre>
+
+  <p>This is exactly the fix shipped in <a href="https://github.com/ConorsCode/open-fedspend-data">open-fedspend-data</a>'s fetcher — see its <code>fetchAllAwards()</code> for the real implementation, including the comment documenting the exact page range where the flag failed on a live pull.</p>
+</section>
+
+<!-- ============================= PAGINATION ============================= -->
+<section id="pagination" class="platform-section">
+  <h2>Pagination: the 50,000-row cap and the cursor workaround</h2>
+  <span class="verified">Verified live — page 501 at limit 100 returns an explicit error</span>
+
+  <h3>The cap</h3>
+  <p>Simple page-number pagination (<code>page</code> + <code>limit</code>) is capped at <code>page * limit &lt;= 50,000</code>. Requesting further pages doesn't return empty results — it returns an explicit error telling you exactly what to do instead:</p>
+
+  <pre><code>curl -X POST "https://api.usaspending.gov/api/v2/search/spending_by_award/" \
+  -H "Content-Type: application/json" \
+  -d '{"filters": {...}, "fields": ["Award ID"], "sort": "Award ID", "order": "desc", "page": 501, "limit": 100}'</code></pre>
+
+  <pre><code>{
+  "detail": "Page #501 with limit 100 is over the maximum result limit 50000. Please provide the 'last_record_sort_value' and 'last_record_unique_id' to paginate sequentially."
+}</code></pre>
+
+  <h3>The cursor workaround</h3>
+  <p>Beyond the cap, switch to cursor pagination using the values every page's <code>page_metadata</code> already includes:</p>
+
+  <pre><code>{
+  "spending_level": "awards",
+  "limit": 2,
+  "results": [ ... ],
+  "page_metadata": {
+    "page": 1,
+    "hasNext": true,
+    "last_record_unique_id": 295527116,
+    "last_record_sort_value": "4277416823125"
+  }
+}</code></pre>
+
+  <p>Pass those two values back on the next request instead of incrementing <code>page</code>:</p>
+
+  <pre><code>{
+  "filters": { ... },
+  "fields": [...],
+  "sort": "Award Amount",
+  "order": "desc",
+  "limit": 100,
+  "last_record_sort_value": "4277416823125",
+  "last_record_unique_id": 295527116
+}</code></pre>
+
+  <p>This cursor approach has no 50,000-row ceiling — it's the only way to walk a result set larger than that through this endpoint. Combine it with the short-page stopping rule above (not <code>hasNext</code>) for a pull that neither errors out nor silently truncates.</p>
+</section>
+
+<!-- ============================= LIMIT ============================= -->
+<section id="limit" class="platform-section">
+  <h2><code>limit</code> caps at 100</h2>
+  <span class="verified">Verified live — limit 101 returns 422</span>
+  <p>The per-page <code>limit</code> parameter has a hard ceiling of 100. Requesting <code>101</code> doesn't get silently clamped to 100 — it returns an HTTP <code>422</code> error. Use 100 as your page size when you want the fewest possible requests.</p>
+</section>
+
+<!-- ============================= MONEY ============================= -->
+<section id="money" class="platform-section">
+  <h2>Money semantics: obligated vs. outlays vs. ceiling</h2>
+  <p>This is the single most common source of confusion in USAspending data, and it trips up experienced analysts, not just newcomers.</p>
+
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>Field</th><th>What it actually is</th></tr></thead>
+    <tbody>
+      <tr><td><code>Award Amount</code> (obligated)</td><td>The dollar amount the government has legally committed to pay on this award transaction. This is what most people mean by "the contract's value" in casual conversation, but it is <strong>not</strong> the same as the contract's ceiling or potential total value — a large multi-year IDV/BPA can have a small obligated amount at any given point if only a fraction has been funded so far.</td></tr>
+      <tr><td><code>Total Outlays</code></td><td>Dollars <strong>actually disbursed</strong> to the recipient to date, as USAspending reports it. This lags obligation, often significantly, especially early in a multi-year award's life.</td></tr>
+      <tr><td>Contract ceiling / potential value</td><td>Not reliably present as a single field on this endpoint at all for most award types — obligated amount and outlays are what this search API gives you. Ceiling values, where they exist, generally require looking at the award's own detail page or the underlying IDV structure, outside the scope of this search endpoint.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout">
+    <strong><code>Total Outlays</code> can be negative</strong>
+    We've observed this directly: Lockheed Martin's largest DOE contract in our verification pull shows <code>"Award Amount": 48063737196.35</code> alongside <code>"Total Outlays": -4166130.71</code>. A negative outlay figure happens when de-obligations (money the government formally un-commits, e.g. contract modifications reducing scope) in the reporting period exceed new disbursements. It does not mean the recipient owes money back, and it is not a data error — it's a real, if confusing, accounting artifact of how obligation/outlay reporting works across fiscal periods.
+  </div>
+
+  <p>Practical rule: if you're building anything that displays "how much is this award worth," default to <code>Award Amount</code> (obligated) and label it as such — don't call it "value" or "total funding" without qualification, and never conflate it with outlays or an assumed ceiling.</p>
+</section>
+
+<!-- ============================= AWARD TYPES ============================= -->
+<section id="award-types" class="platform-section">
+  <h2>Award type codes reference</h2>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>Code</th><th>Category</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>A</code></td><td>Contract</td><td>BPA Call (order placed against a Blanket Purchase Agreement)</td></tr>
+      <tr><td><code>B</code></td><td>Contract</td><td>Purchase Order</td></tr>
+      <tr><td><code>C</code></td><td>Contract</td><td>Delivery Order</td></tr>
+      <tr><td><code>D</code></td><td>Contract</td><td>Definitive Contract</td></tr>
+      <tr><td><code>02</code></td><td>Grant / Assistance</td><td>Block grant</td></tr>
+      <tr><td><code>03</code></td><td>Grant / Assistance</td><td>Formula grant</td></tr>
+      <tr><td><code>04</code></td><td>Grant / Assistance</td><td>Project grant</td></tr>
+      <tr><td><code>05</code></td><td>Grant / Assistance</td><td>Cooperative agreement</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Pass the codes for the category you want in <code>award_type_codes</code>. Contracts (A/B/C/D) and grants (02/03/04/05) have different valid <code>fields</code>/<code>sort</code> sets — see the <a href="#fields-bug">fields section</a> above — so query them as separate requests if you need both, rather than mixing codes in one call.</p>
+</section>
+
+<!-- ============================= AUTH ============================= -->
+<section id="auth" class="platform-section">
+  <h2>Auth, rate limits, being polite</h2>
+  <ul>
+    <li><strong>No API key required.</strong> Every call in this document, including the ones that intentionally triggered errors, was made with no authentication whatsoever.</li>
+    <li><strong>No rate-limit headers observed</strong> on any of our test responses, and no documented rate limit as of this writing. That's a reason for caution, not a license to hammer the endpoint — this is shared federal infrastructure.</li>
+    <li><strong>Space out requests.</strong> A ~150ms delay between paginated calls is enough to be polite without meaningfully slowing a real pull; that's what we use in production.</li>
+    <li><strong>Retry with backoff on 429/5xx</strong>, never in a tight loop. Treat non-2xx, non-retryable errors (like the <code>422</code>/<code>400</code>s documented above) as signals to fix the request, not to retry.</li>
+    <li><strong>Use a real, identifying User-Agent header</strong> on production traffic.</li>
+  </ul>
+</section>
+
+<!-- ============================= WORKED EXAMPLE ============================= -->
+<section id="worked-example" class="platform-section">
+  <h2>Worked example: a full paginated pull</h2>
+  <p>Putting the short-page stopping rule and the field-discovery technique together, a correct pull for all contract awards in a date window looks like:</p>
+  <pre><code>const PAGE_LIMIT = 100;
+const MAX_PAGEABLE_RESULTS = 49900; // stay under the 50,000 hard cap
+
+async function fetchAllContracts(startDate, endDate) {
+  const filters = {
+    award_type_codes: ['A', 'B', 'C', 'D'],
+    time_period: [{ start_date: startDate, end_date: endDate }],
+  };
+  const results = [];
+  let page = 1;
+  let pageWasFull = true;
+
+  while (pageWasFull) {
+    if (page * PAGE_LIMIT > MAX_PAGEABLE_RESULTS) break; // switch to cursor pagination here if needed
+
+    const res = await fetch('https://api.usaspending.gov/api/v2/search/spending_by_award/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filters,
+        fields: ['Award ID', 'Recipient Name', 'Award Amount', 'Total Outlays', 'Awarding Agency'],
+        sort: 'Award Amount',
+        order: 'desc',
+        page,
+        limit: PAGE_LIMIT,
+      }),
+    }).then(r => r.json());
+
+    results.push(...res.results);
+    // Correct stop condition — NOT res.page_metadata.hasNext:
+    pageWasFull = res.results.length === PAGE_LIMIT;
+    page += 1;
+  }
+  return results;
+}</code></pre>
+  <p>This is a simplified version of the real fetcher behind <a href="https://github.com/ConorsCode/open-fedspend-data">open-fedspend-data</a>, which adds retry-with-backoff and request throttling.</p>
+</section>
+
+<hr class="sep">
+
+<!-- ============================= RELATED ============================= -->
+<section id="related">
+  <h2>Free dataset &amp; paid actor</h2>
+  <p class="small">Everything above is enough to build your own fetcher. If you'd rather not, here's what we've published from the same code this page is based on:</p>
+  <ul>
+    <li><strong>Free dataset</strong> — <a href="https://github.com/ConorsCode/open-fedspend-data">github.com/ConorsCode/open-fedspend-data</a>, MIT-licensed, a rolling 7-day window of every US federal prime contract award, refreshed daily, with recipient/agency/NAICS aggregates.</li>
+    <li><strong>Paid, on-demand actor</strong> — <a href="https://apify.com/studious_allergy_mig/fed-contracts-scraper">apify.com/studious_allergy_mig/fed-contracts-scraper</a>, pay-per-result, for arbitrary keyword/NAICS/agency/date-range queries run on demand rather than a fixed daily window, with optional SAM.gov opportunity data.</li>
+    <li>See also our <a href="https://conorscode.github.io/ats-api-reference/">ATS Job API Reference</a> — nine applicant tracking system APIs, same verified-live approach.</li>
+  </ul>
+</section>
+
+<!-- ============================= LEGAL ============================= -->
+<section id="legal">
+  <h2>Legal &amp; ethical notes</h2>
+  <p>Every endpoint on this page is public and unauthenticated — no login, no API key, no session cookie. This is the same API usaspending.gov's own search UI calls from a visitor's browser.</p>
+  <ul>
+    <li><strong>Public spending data by design.</strong> Federal award data is published specifically for public transparency under the DATA Act; there's no personal-data concern here the way there is with, say, scraping resumes or contact directories.</li>
+    <li><strong>Be polite.</strong> No documented rate limit and no rate-limit headers observed is a reason for caution, not license to hammer shared federal infrastructure — throttle your requests and cache aggressively.</li>
+    <li><strong>Attribute the data to USAspending.gov</strong> if you republish it, and link back to the specific award page (<code>usaspending.gov/award/{generated_internal_id}</code>) where practical.</li>
+  </ul>
+</section>
+
+<footer>
+  <p>Last verified: 2026-08-05, against the live production API (see each section for the exact request used). If behavior has drifted from what's documented here, it's worth re-checking — this is an actively maintained government API and its validation behavior could change without notice.</p>
+  <p class="backtotop"><a href="#top">↑ Back to top</a></p>
+</footer>
+
+</div>
+</body>
+</html>
